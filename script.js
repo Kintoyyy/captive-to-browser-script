@@ -1,32 +1,24 @@
 (function () {
-    const isCaptivePortal = (() => {
-        const ua = navigator.userAgent;
-        const isLikelyCaptiveUA = /CaptiveNetworkSupport|CAPTIVE|ConnectivityCheck|NetworkCheck|CaptiveNetwork|portal|miniport/i.test(ua);
-        const isAppleCaptive = navigator.vendor === "Apple Computer, Inc." && /CaptiveNetworkSupport/.test(navigator.appVersion);
+    const ua = navigator.userAgent;
+    const w = window.innerWidth, h = window.innerHeight;
+    const isIOS = /iPhone|iPad|iPod/.test(ua);
+    const isAndroid = /Android/.test(ua);
+    const noHistory = history.length === 1;
+    const noOpener = window.opener === null;
 
-        let hasLimitedStorage = false;
-        try {
-            localStorage.setItem('__test__', '__test__');
-            localStorage.removeItem('__test__');
-        } catch (e) {
-            hasLimitedStorage = true;
-        }
-
-        const serviceWorkerUnavailable = !(navigator.serviceWorker && 'register' in navigator.serviceWorker);
-
-        return isLikelyCaptiveUA || hasLimitedStorage || serviceWorkerUnavailable || isAppleCaptive;
+    const isLikelyCaptive = (() => {
+        const uaHint = /CaptiveNetworkSupport|ConnectivityCheck|NetworkCheck|portal|miniport|wv/i.test(ua);
+        const smallView = w < 480 && h < 480;
+        const iOSWebSheet = isIOS && noHistory && noOpener && typeof navigator.standalone === "undefined";
+        const androidWebView = isAndroid && /wv/.test(ua);
+        return uaHint || smallView || iOSWebSheet || androidWebView;
     })();
 
-    const currentURL = window.location.href;
-
-    function attemptAllRedirects() {
+    function attemptRedirect() {
+        const currentURL = window.location.href;
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
         document.body.appendChild(iframe);
-
-        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-        const isAndroid = /Android/i.test(navigator.userAgent);
-        const isChrome = /Chrome/i.test(navigator.userAgent);
 
         if (isIOS) {
             window.location.href = currentURL;
@@ -36,13 +28,12 @@
                     iframe.contentWindow.location.href = currentURL;
                 } catch (e) { }
             }, 400);
-        } else if (isAndroid && isChrome) {
-            const scheme = window.location.protocol.replace(':', '');
-            const chromeIntent = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=${scheme};package=com.android.chrome;end`;
-            const fallbackIntent = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=${scheme};S.browser_fallback_url=${encodeURIComponent(currentURL)};end`;
-
-            window.location.href = chromeIntent;
-            setTimeout(() => window.location.href = fallbackIntent, 300);
+        } else if (isAndroid && /Chrome/.test(ua)) {
+            const scheme = location.protocol.replace(':', '');
+            const intent = `intent://${location.host}${location.pathname}${location.search}#Intent;scheme=${scheme};package=com.android.chrome;end`;
+            const fallback = `intent://${location.host}${location.pathname}${location.search}#Intent;scheme=${scheme};S.browser_fallback_url=${encodeURIComponent(location.href)};end`;
+            window.location.href = intent;
+            setTimeout(() => window.location.href = fallback, 300);
             setTimeout(() => window.location.replace(currentURL), 600);
         } else {
             window.location.href = currentURL;
@@ -56,31 +47,26 @@
         }, 1500);
     }
 
-    function showCountdownPopup() {
-        if (!document.body) {
-            setTimeout(showCountdownPopup, 50);
-            return;
-        }
-
-        if (document.getElementById('captive-portal-modal')) return;
+    function showRedirectModal() {
+        if (document.getElementById('redirect-modal')) return;
 
         const modal = document.createElement('div');
-        modal.id = 'captive-portal-modal';
+        modal.id = 'redirect-modal';
         Object.assign(modal.style, {
             position: 'fixed',
             top: '0',
             left: '0',
             width: '100%',
             height: '100%',
-            backgroundColor: 'rgba(0, 0, 0, 0.4)',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
             zIndex: '9999',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
+            justifyContent: 'center'
         });
 
-        const content = document.createElement('div');
-        Object.assign(content.style, {
+        const box = document.createElement('div');
+        Object.assign(box.style, {
             backgroundColor: '#fff',
             padding: '24px',
             borderRadius: '8px',
@@ -88,81 +74,53 @@
             width: '90%',
             fontFamily: 'system-ui, sans-serif',
             textAlign: 'center',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
         });
 
-        content.innerHTML = `
-        <h3 style="margin: 0 0 10px; font-size: 18px; color: #222;">Captive Portal Detected</h3>
-        <p style="font-size: 14px; color: #444; margin-bottom: 20px;">
-            To continue, please open this page in your device's default browser.
-        </p>
-        <div id="countdown" style="font-size: 32px; font-weight: 500; margin-bottom: 20px; color: #555;">10</div>
-        <div style="display: flex; justify-content: space-between; gap: 10px;">
-            <button id="redirect-now-btn" style="
-                flex: 1;
-                padding: 10px;
-                background-color: #007bff;
-                color: #fff;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                cursor: pointer;
-            ">Open Now</button>
-            <button id="dismiss-btn" style="
-                flex: 1;
-                padding: 10px;
-                background-color: #e0e0e0;
-                color: #333;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                cursor: pointer;
-            ">Cancel</button>
-        </div>
+        box.innerHTML = `
+      <h3 style="margin: 0 0 12px; color: #333;">Captive Portal Detected</h3>
+      <p style="color: #555; font-size: 14px; margin-bottom: 20px;">
+        Please open this page in your device's default browser to continue.
+      </p>
+      <div id="countdown" style="font-size: 32px; font-weight: 600; margin-bottom: 16px;">10</div>
+      <button id="open-now" style="
+        padding: 10px 16px;
+        background-color: #007bff;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        font-size: 14px;
+        cursor: pointer;
+      ">Open Now</button>
     `;
 
-        modal.appendChild(content);
+        modal.appendChild(box);
         document.body.appendChild(modal);
 
-        let secondsLeft = 10;
-        const countdownElement = document.getElementById('countdown');
+        let seconds = 10;
+        const countdown = document.getElementById('countdown');
         const interval = setInterval(() => {
-            secondsLeft--;
-            if (countdownElement) countdownElement.textContent = secondsLeft;
-            if (secondsLeft <= 0) {
+            seconds--;
+            if (countdown) countdown.textContent = seconds;
+            if (seconds <= 0) {
                 clearInterval(interval);
                 modal.remove();
-                attemptAllRedirects();
+                attemptRedirect();
             }
         }, 1000);
 
-        document.getElementById('redirect-now-btn')?.addEventListener('click', () => {
+        document.getElementById('open-now')?.addEventListener('click', () => {
             clearInterval(interval);
             modal.remove();
-            attemptAllRedirects();
-        });
-
-        document.getElementById('dismiss-btn')?.addEventListener('click', () => {
-            clearInterval(interval);
-            modal.remove();
+            attemptRedirect();
         });
     }
 
-
-    function ensureUIReady() {
+    if (isLikelyCaptive) {
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
-            showCountdownPopup();
+            showRedirectModal();
         } else {
-            document.addEventListener('DOMContentLoaded', showCountdownPopup);
-            setTimeout(() => {
-                if (!document.getElementById('captive-portal-modal')) {
-                    showCountdownPopup();
-                }
-            }, 1000);
+            window.addEventListener('DOMContentLoaded', showRedirectModal);
         }
-    }
-
-    if (isCaptivePortal) {
-        ensureUIReady();
     }
 })();
